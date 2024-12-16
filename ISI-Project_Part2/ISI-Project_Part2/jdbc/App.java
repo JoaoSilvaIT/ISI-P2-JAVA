@@ -195,54 +195,21 @@ class UI {
     private void startStopTravel() {
         // TODO
         System.out.println("startStopTravel()");
-        try {
-            String travelData = Model.inputData("Enter the operation (start/stop), name, station, and scooter:\n");
-            Model.travel(travelData.split(","));
-            System.out.println("Travel operation processed successfully.");
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
     }
 
     private void updateDocks() {
         // TODO
         System.out.println("updateDocks()");
-        try {
-            String dockData = Model.inputData("Enter the dock ID and new state:\n");
-            // Assuming updateDocks method in Model class takes two parameters: dock ID and state
-            String[] data = dockData.split(",");
-            Model.updateDocks(Integer.parseInt(data[0]), data[1]);
-            System.out.println("Dock updated successfully.");
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
     }
 
     private void userSatisfaction() {
         // TODO
         System.out.println("userSatisfaction()");
-        try {
-            String satisfactionData = Model.inputData("Enter the user ID and satisfaction rating:\n");
-            // Assuming userSatisfaction method in Model class takes two parameters: user ID and rating
-            String[] data = satisfactionData.split(",");
-            Model.userSatisfaction(Integer.parseInt(data[0]), Integer.parseInt(data[1]));
-            System.out.println("User satisfaction recorded successfully.");
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
     }
 
     private void occupationStation() {
         // TODO
         System.out.println("occupationStation()");
-        try {
-            String stationData = Model.inputData("Enter the station ID:\n");
-            // Assuming occupationStation method in Model class takes one parameter: station ID
-            Model.occupationStation(Integer.parseInt(stationData));
-            System.out.println("Station occupation data retrieved successfully.");
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
     }
 }
 

@@ -65,13 +65,25 @@ public class Model {
                     throw new RuntimeException("Creating person failed, no ID obtained.");
                 }
             }
-            
-            
-            
-            // CONTINUE
 
+            // Insert User
+            pstmtUser.setInt(1, personId);
+            pstmtUser.setTimestamp(2, userData.getRegistrationDate());
 
+            int affectedRowsUser = pstmtUser.executeUpdate();
+            if (affectedRowsUser == 0) {
+                throw new RuntimeException("Creating user failed, no rows affected.");
+            }
 
+            // Insert card
+            pstmtCard.setDouble(1, cardData.getCredit());
+            pstmtCard.setString(2, cardData.getReference());
+            pstmtCard.setInt(3, personId);
+
+            int affectedRowsCard = pstmtCard.executeUpdate();
+            if (affectedRowsCard == 0) {
+                throw new RuntimeException("Creating card failed, no rows affected.");
+            }
 
             conn.commit();
             if (pstmtUser != null)
@@ -107,17 +119,42 @@ public class Model {
          * @param orders Criteria for listing orders
          * @throws SQLException if database operation fails
          */
-        final String VALUE_CMD = "SELECT * FROM replacementorder WHERE time_interval = ? AND station_number = ?";
+        final String VALUE_CMD = """
+            SELECT *
+            FROM replacementorder
+            WHERE dtorder BETWEEN ? AND ? AND station = ?
+        """;
         try (
             Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
             PreparedStatement pstmt = conn.prepareStatement(VALUE_CMD);
         ) {
-            pstmt.setString(1, orders[0]);
-            pstmt.setString(2, orders[1]);
+            Date start;
+            Date end;
+
+            try {
+                start = Date.valueOf(orders[0]);
+                end = Date.valueOf(orders[1]);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid date format. Use yyyy-mm-dd.");
+            }
+
+            int station;
+            try {
+                station = Integer.parseInt(orders[2]);
+            } catch (NumberFormatException e) {
+                throw new NumberFormatException("Invalid station ID.");
+            }
+
+            pstmt.setDate(1, start);
+            pstmt.setDate(2, end);
+            pstmt.setInt(3, station);
+
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
-                System.out.println("Order ID: " + rs.getInt("id"));
+                System.out.println("Station ID: " + rs.getInt("station"));
                 // Print other order details as needed
+                System.out.println("    Order Date: " + rs.getTimestamp("dtorder"));
+                System.out.println("    Occupation rate: " + rs.getInt("roccupation"));
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -125,65 +162,13 @@ public class Model {
     }
 
     
-    public static void listReplacementOrders(int stationId, Timestamp startDate, Timestamp endDate) throws SQLException {
-         /**
-         * Lists replacement orders for a specific station in a given time period
-         * @param stationId Station ID
-         * @param startDate Start date for period
-         * @param endDate End date for period
-         * @throws SQLException if database operation fails
-         */
-        final String QUERY = "SELECT * FROM replacement_orders WHERE station_id = ? AND order_date BETWEEN ? AND ?";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(QUERY);
-        ) {
-            pstmt.setInt(1, stationId);
-            pstmt.setTimestamp(2, startDate);
-            pstmt.setTimestamp(3, endDate);
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                System.out.println("Order ID: " + rs.getInt("id"));
-                // Print other order details as needed
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
     public static void travel(String[] values){
-            /**
+        /**
          * Processes a travel operation (start or stop)
          * @param values Array containing [operation, name, station, scooter]
          * @throws SQLException if database operation fails
          */
-        final String START_TRAVEL = "INSERT INTO travels (client_id, scooter_id, station_id, start_time) VALUES (?, ?, ?, ?)";
-        final String STOP_TRAVEL = "UPDATE travels SET end_time = ? WHERE client_id = ? AND scooter_id = ? AND station_id = ? AND end_time IS NULL";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-        ) {
-            conn.setAutoCommit(false);
-            if (values[0].equalsIgnoreCase("start")) {
-                try (PreparedStatement pstmt = conn.prepareStatement(START_TRAVEL)) {
-                    pstmt.setInt(1, getClientId(values[1]));
-                    pstmt.setInt(2, Integer.parseInt(values[3]));
-                    pstmt.setInt(3, Integer.parseInt(values[2]));
-                    pstmt.setTimestamp(4, new Timestamp(System.currentTimeMillis()));
-                    pstmt.executeUpdate();
-                }
-            } else if (values[0].equalsIgnoreCase("stop")) {
-                try (PreparedStatement pstmt = conn.prepareStatement(STOP_TRAVEL)) {
-                    pstmt.setTimestamp(1, new Timestamp(System.currentTimeMillis()));
-                    pstmt.setInt(2, getClientId(values[1]));
-                    pstmt.setInt(3, Integer.parseInt(values[3]));
-                    pstmt.setInt(4, Integer.parseInt(values[2]));
-                    pstmt.executeUpdate();
-                }
-            }
-            conn.commit();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
+        // TO BE DONE  
     }
     
     public static int getClientId(String name) throws SQLException {
@@ -193,20 +178,7 @@ public class Model {
          * @return client ID or -1 if not found
          * @throws SQLException if database operation fails
          */
-        final String QUERY = "SELECT id FROM client WHERE name = ?";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(QUERY);
-        ) {
-            pstmt.setString(1, name);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getInt("id");
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return -1;
+        
     }
 
     public static void startTravel(int clientId, int scooterId, int stationId) throws SQLException {
@@ -217,19 +189,7 @@ public class Model {
          * @param stationId Station ID
          * @throws SQLException if database operation fails
          */
-        final String START_TRAVEL = "INSERT INTO travels (client_id, scooter_id, station_id, start_time) VALUES (?, ?, ?, ?)";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(START_TRAVEL);
-        ) {
-            pstmt.setInt(1, clientId);
-            pstmt.setInt(2, scooterId);
-            pstmt.setInt(3, stationId);
-            pstmt.setTimestamp(4, new Timestamp(System.currentTimeMillis()));
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
+        System.out.print("EMPTY")
     }
 
     
@@ -241,79 +201,21 @@ public class Model {
          * @param stationId Destination station ID
          * @throws SQLException if database operation fails
          */
-        final String STOP_TRAVEL = "UPDATE travels SET end_time = ? WHERE client_id = ? AND scooter_id = ? AND station_id = ? AND end_time IS NULL";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(STOP_TRAVEL);
-        ) {
-            pstmt.setTimestamp(1, new Timestamp(System.currentTimeMillis()));
-            pstmt.setInt(2, clientId);
-            pstmt.setInt(3, scooterId);
-            pstmt.setInt(4, stationId);
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
+        System.out.print("EMPTY")
     }
 
-    public static void updateDocks(int dockId, String newState) {
-        /**
-         * Updates the state of a dock
-         * @param dockId ID of the dock
-         * @param newState New state of the dock
-         * @throws SQLException if database operation fails
-         */
-        final String UPDATE_DOCK = "UPDATE docks SET state = ? WHERE id = ?";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(UPDATE_DOCK);
-        ) {
-            pstmt.setString(1, newState);
-            pstmt.setInt(2, dockId);
-            pstmt.executeUpdate();
-            System.out.println("Dock updated successfully.");
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
+    public static void updateDocks(/*FILL WITH PARAMETERS */) {
+        // TODO
+        System.out.println("updateDocks()");
     }
 
-    public static void userSatisfaction(int userId, int rating) {
-        /**
-         * Records user satisfaction rating
-         * @param userId ID of the user
-         * @param rating Satisfaction rating
-         * @throws SQLException if database operation fails
-         */
-        final String INSERT_RATING = "INSERT INTO user_satisfaction (user_id, rating) VALUES (?, ?)";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(INSERT_RATING);
-        ) {
-            pstmt.setInt(1, userId);
-            pstmt.setInt(2, rating);
-            pstmt.executeUpdate();
-            System.out.println("User satisfaction recorded successfully.");
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
+    public static void userSatisfaction(/*FILL WITH PARAMETERS */) {
+        // TODO
+        System.out.println("userSatisfaction()");
     }
 
-    public static void occupationStation(int stationId) {
-        /**
-         * Retrieves and prints the occupation data of a station
-         * @param stationId ID of the station
-         * @throws SQLException if database operation fails
-         */
-        final String QUERY_OCCUPATION = "SELECT * FROM station_occupation WHERE station_id = ?";
-        try (
-            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
-            PreparedStatement pstmt = conn.prepareStatement(QUERY_OCCUPATION);
-        ) {
-            pstmt.setInt(1, stationId);
-            ResultSet rs = pstmt.executeQuery();
-            UI.printResults(rs);
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
+    public static void occupationStation(/*FILL WITH PARAMETERS */) {
+        // TODO
+        System.out.println("occupationStation()");
+    }    
 }
