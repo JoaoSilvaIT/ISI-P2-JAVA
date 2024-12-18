@@ -36,7 +36,7 @@ public class Model {
          * @param cardData Card information
          * @throws SQLException if database operation fails
          */
-        final String INSERT_PERSON = "INSERT INTO person(email, taxnumber, name) VALUES (?,?,?) RETURNING id";
+        final String INSERT_PERSON = "INSERT INTO person(email, taxnumber, name) VALUES (?,?,?)";
         final String INSERT_CARD = "INSERT INTO card(credit, typeof, client) VALUES (?,?,?)";
         final String INSERT_USER = "INSERT INTO client(person, dtregister) VALUES (?,?)";
 
@@ -150,7 +150,6 @@ public class Model {
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
                 System.out.println("Station ID: " + rs.getInt("station"));
-                // Print other order details as needed
                 System.out.println("    Order Date: " + rs.getTimestamp("dtorder"));
                 System.out.println("    Occupation rate: " + rs.getInt("roccupation"));
             }
@@ -167,14 +166,6 @@ public class Model {
     }
 
     public static void travel(String[] values) {
-        /**
-         * Processes a travel operation (start or stop)
-         *
-         * @param values Array containing [operation, name, station, scooter]
-         * @throws SQLException if database operation fails
-         */
-        // TO BE DONE
-
         try {
             int operation = Integer.parseInt(values[0]);
             int station = Integer.parseInt(values[2]);
@@ -221,41 +212,17 @@ public class Model {
     }
 
     public static void startTravel(int clientId, int scooterId, int stationId) throws SQLException {
-        /**
-         * Starts a new travel
-         *
-         * @param clientId Client ID
-         * @param scooterId Scooter ID
-         * @param stationId Station ID
-         * @throws SQLException if database operation fails
-         */
+        final String INSERT_TRAVEL = """
+            INSERT INTO travel (dtinitial, client, scooter, stinitial)
+            VALUES (?,?,?,?)
+        """;
 
-        final String GET_DOCK = "SELECT * FROM dock WHERE scooter = ? AND station = ?";
-        final String GET_TRAVEL = "SELECT * FROM travel WHERE client = ? AND dtfinal IS NULL";
-        final String INSERT_TRAVEL = "INSERT INTO travel(dtinitial, client, scooter, stinitial) VALUES (?,?,?,?)";
-        final String UPDATE_CARD = "UPDATE card SET credit = credit - (SELECT unlock FROM servicecost) WHERE client = ?";
-
-        try (Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString()); PreparedStatement pstmtGetDock = conn.prepareStatement(GET_DOCK); PreparedStatement pstmtGetTravel = conn.prepareStatement(GET_TRAVEL); PreparedStatement pstmtInsertTravel = conn.prepareStatement(INSERT_TRAVEL); PreparedStatement pstmtUpdateCard = conn.prepareStatement(UPDATE_CARD);) {
-            conn.setAutoCommit(false);
-
-            pstmtGetTravel.setInt(1, clientId);
-
-            ResultSet rsGetTravel = pstmtGetTravel.executeQuery();
-            if (rsGetTravel.next()) {
-                throw new IllegalArgumentException("Client already has an ongoing travel.");
-            }
-
-            pstmtGetDock.setInt(1, scooterId);
-            pstmtGetDock.setInt(2, stationId);
-
-            ResultSet rsDock = pstmtGetDock.executeQuery();
-            if (!rsDock.next()) {
-                throw new IllegalArgumentException("Scooter not found in dock.");
-            }
-
-            if (rsDock.getString(2) != "occupy") {
-                throw new IllegalArgumentException("Scooter is not available.");
-            }
+        try (
+            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
+            PreparedStatement pstmtInsertTravel = conn.prepareStatement(INSERT_TRAVEL);
+        ) {
+            Restriction.checkValidTravel(clientId, scooterId, stationId);
+            Restriction.updateCreditStart(clientId, scooterId);
 
             Timestamp now = new Timestamp(System.currentTimeMillis());
             pstmtInsertTravel.setTimestamp(1, now);
@@ -263,280 +230,237 @@ public class Model {
             pstmtInsertTravel.setInt(3, scooterId);
             pstmtInsertTravel.setInt(4, stationId);
 
-            ResultSet rsInsert = pstmtInsertTravel.executeQuery();
-            if (rsInsert.next()) {
+            int affectedRows = pstmtInsertTravel.executeUpdate();
+            if (affectedRows == 0) {
                 throw new IllegalArgumentException("Error inserting travel.");
             }
-
-            pstmtUpdateCard.setInt(1, clientId);
-
-            int affectedRowsCard = pstmtUpdateCard.executeUpdate();
-            if (affectedRowsCard == 0) {
-                throw new IllegalArgumentException("Error updating card.");
-            }
-
-            conn.commit();
-            conn.setAutoCommit(true);
         }
+        
     }
 
     public static void stopTravel(int clientId, int scooterId, int stationId) throws SQLException {
-        /**
-         * Stops an ongoing travel
-         *
-         * @param clientId Client ID
-         * @param scooterId Scooter ID
-         * @param stationId Destination station ID
-         * @throws SQLException if database operation fails
-         */
+        final String UPDATE_TRAVEL = """
+            UPDATE travel
+            SET stfinal = ?, dtfinal = ?
+            WHERE client = ? AND scooter = ? AND dtfinal IS NULL
+        """;
+        
+        try (
+            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
+            PreparedStatement pstmtUpdateTravel = conn.prepareStatement(UPDATE_TRAVEL);
+        ) {
+            Timestamp dtfinal = new Timestamp(System.currentTimeMillis());
+            Restriction.updateCreditStop(clientId, scooterId, stationId, dtfinal);
 
-        final String GET_TRAVEL = "SELECT * FROM travel WHERE client = ? AND stfinal IS NULL";
-        final String GET_DOCK = "SELECT * FROM dock WHERE station = ? AND state = ?";
-        final String UPDATE_TRAVEL = "UPDATE travel SET stfinal = ? WHERE dtinitial = ?";
-        final String UPDATE_CARD = "UPDATE card SET credit = credit - (? * (SELECT usable FROM servicecost)) WHERE client = ?";
+            pstmtUpdateTravel.setInt(1, stationId);
+            pstmtUpdateTravel.setTimestamp(2, dtfinal);
+            pstmtUpdateTravel.setInt(3, clientId);
+            pstmtUpdateTravel.setInt(4, scooterId);
 
-        try (Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString()); PreparedStatement pstmtGetTravel = conn.prepareStatement(GET_TRAVEL); PreparedStatement pstmtGetDock = conn.prepareStatement(GET_DOCK); PreparedStatement pstmtUpdateTravel = conn.prepareStatement(UPDATE_TRAVEL); PreparedStatement pstmtUpdateCard = conn.prepareStatement(UPDATE_CARD)) {
-
-            conn.setAutoCommit(false);
-
-            //Check if there is a travel
-            pstmtGetTravel.setInt(1, clientId);
-
-            ResultSet rsGetTravel = pstmtGetTravel.executeQuery();
-            if (!rsGetTravel.next()) {
-                throw new IllegalArgumentException("Client does not have an ongoing travel.");
-            }
-
-            pstmtGetDock.setInt(1, stationId);
-            pstmtGetDock.setString(2, "free");
-
-            ResultSet rsDock = pstmtGetDock.executeQuery();
-            if (!rsDock.next()) {
-                throw new IllegalArgumentException("Station is not available.");
-            }
-
-            Timestamp now = new Timestamp(System.currentTimeMillis());
-            pstmtUpdateTravel.setTimestamp(1, now);
-            pstmtUpdateTravel.setInt(2, stationId);
-            pstmtUpdateTravel.setTimestamp(3, rsGetTravel.getTimestamp(1));
-
-            int affectedRowsTravel = pstmtUpdateTravel.executeUpdate();
-            if (affectedRowsTravel == 0) {
+            int affectedRows = pstmtUpdateTravel.executeUpdate();
+            if (affectedRows == 0) {
                 throw new IllegalArgumentException("Error updating travel.");
             }
-
-            long ms = rsGetTravel.getTimestamp(1).getTime() - now.getTime();
-            long minutes = ms / 60000;
-
-            pstmtUpdateCard.setLong(1, minutes);
-
-            int affectedRowsCard = pstmtUpdateCard.executeUpdate();
-            if (affectedRowsCard == 0) {
-                throw new IllegalArgumentException("Error updating card.");
-            }
-
-            conn.commit();
-            conn.setAutoCommit(true);
         }
     }
 
-    public static void updateDocks() {
+    public static void updateDocks()  {
 
-        final String GET_REPLACEMENT_ORDERS = """
-            SELECT *
-            FROM replacementorder
+        // get all the replacements that haven't been done yet and order them by date for each station
+        final String GET_REPLACEMENTS = """
+            SELECT o.dtorder, o.station, r.dtreplacement, r.action
+            FROM replacementorder as o
+            JOIN replacement as r
+            ON o.dtorder = r.dtreporder AND o.station = r.repstation
+            WHERE o.dtreplacement IS NULL
         """;
-        final String GET_REPLACEMENT = """
-            SELECT *
-            FROM replacement
-            WHERE dtreporder = ? and repstation = ? and dtreplacement > ? or ? IS NULL
-            ORDER BY dtreplacement
+
+        final String UPDATE_REPLACEMENT_ORDERS = """
+            UPDATE replacementorder as o
+            SET dtreplacement = r.dtreplacement
+            FROM (
+                SELECT dtreporder, repstation, MAX(dtreplacement) as dtreplacement
+                FROM replacement
+                WHERE dtreplacement IS NOT NULL
+                GROUP BY dtreporder, repstation
+                ORDER BY dtreplacement
+            ) as r
+            WHERE r.dtreplacement IS NOT NULL AND r.dtreporder = o.dtorder AND r.repstation = o.station
         """;
-        final String GET_FREE_DOCK = """
+
+        final String GET_DOCK = """
             SELECT *
             FROM dock
-            WHERE station = ? AND state = 'free'
+            WHERE station = ? AND state = ?
         """;
-        final String GET_OCCUPIED_DOCK = """
-            SELECT *
-            FROM dock
-            WHERE station = ? AND state = 'occupy'
-        """;
+
         final String GET_FREE_SCOOTERS = """
             SELECT *
             FROM scooter
-            WHERE id NOT IN
-                (SELECT scooter
-                FROM dock
-                WHERE state = 'occupy')
+            WHERE id NOT IN (
+                SELECT scooter
+                FROM dock d
+                WHERE d.scooter IS NOT NULL
+            )
         """;
+
         final String UPDATE_DOCK = """
             UPDATE dock
             SET state = ?, scooter = ?
-            WHERE id = ?
+            WHERE number = ?
         """;
-        final String UPDATE_REPLACEMENTORDER = """
-            UPDATE replacementorder
-            SET dtreplacement = ?
-            WHERE number = ? and station = ?
-        """;
+
         final String GET_TRAVELS = """
             SELECT *
             FROM travel
-            WHERE dtfinal IS NULL
-        """;
-        final String UPDATE_DOCK_BY_SCOOTER = """
-            UPDATE dock
-            SET state = ?, scooter = ?
-            WHERE station = ? AND scooter = ?
-        """;
-        final String UPDATE_TRAVEL = """
-            UPDATE travel
-            SET dtfinal = ?
-            WHERE dtinitial = ?
         """;
 
-        try (Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString()); PreparedStatement pstmtGetFreeScooters = conn.prepareStatement(GET_FREE_SCOOTERS); PreparedStatement pstmtGetReplacementOrders = conn.prepareStatement(GET_REPLACEMENT_ORDERS); PreparedStatement pstmtGetReplacement = conn.prepareStatement(GET_REPLACEMENT); PreparedStatement pstmtGetFreeDock = conn.prepareStatement(GET_FREE_DOCK); PreparedStatement pstmtUpdateDock = conn.prepareStatement(UPDATE_DOCK); PreparedStatement pstmtGetOccupiedDock = conn.prepareStatement(GET_OCCUPIED_DOCK); PreparedStatement pstmtGetTravels = conn.prepareStatement(GET_TRAVELS); PreparedStatement pstmtUpdateReplacementOrder = conn.prepareStatement(UPDATE_REPLACEMENTORDER); PreparedStatement pstmtUpdateDockByScooter = conn.prepareStatement(UPDATE_DOCK_BY_SCOOTER); PreparedStatement pstmUpdateTravel = conn.prepareStatement(UPDATE_TRAVEL)) {
+        final String GET_DOCK_BY_SCOOTER = """
+            SELECT scooter, number
+            FROM dock
+            WHERE state = ? AND station = ? AND scooter = ?
+        """;
 
-            ResultSet rsOrders = pstmtGetReplacementOrders.executeQuery();
-            while (rsOrders.next()) {
-                Timestamp dtorder = rsOrders.getTimestamp("dtorder");
-                Timestamp dtreplacement = rsOrders.getTimestamp("dtreplacement");
-                int station = rsOrders.getInt("station");
+        try (
+            Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString());
+            PreparedStatement pstmtGetReplacements = conn.prepareStatement(GET_REPLACEMENTS);
+            PreparedStatement pstmtGetDock = conn.prepareStatement(GET_DOCK);
+            PreparedStatement pstmtGetFreeScooters = conn.prepareStatement(GET_FREE_SCOOTERS);
+            PreparedStatement pstmtGetTravels = conn.prepareStatement(GET_TRAVELS);
+            PreparedStatement pstmtUpdateDock = conn.prepareStatement(UPDATE_DOCK);
+            PreparedStatement pstmtGetDockByScooter = conn.prepareStatement(GET_DOCK_BY_SCOOTER);
+            PreparedStatement pstmtUpdateReplacementOrders = conn.prepareStatement(UPDATE_REPLACEMENT_ORDERS);
+        ) {
+            conn.setAutoCommit(false);
 
-                pstmtGetReplacement.setTimestamp(1, dtorder);
-                pstmtGetReplacement.setInt(2, station);
-                pstmtGetReplacement.setTimestamp(3, dtreplacement);
-                if (dtreplacement == null) {
-                    pstmtGetReplacement.setNull(4, Types.TIMESTAMP);
-                } else {
-                    pstmtGetReplacement.setTimestamp(4, dtreplacement);
-                }
+            ResultSet rsReplacements = pstmtGetReplacements.executeQuery();
+            while (rsReplacements.next()) {
+                int station = rsReplacements.getInt("station");
+                String action = rsReplacements.getString("action");
 
-                ResultSet rsReplacement = pstmtGetReplacement.executeQuery();
-                Timestamp lastReplacement = null;
-                while (rsReplacement.next()) {
-                    String action = rsReplacement.getString("action");
+                if (action.equals("inplace")) {
+                    pstmtGetDock.setInt(1, station);
+                    pstmtGetDock.setString(2, "free");
 
-                    if (action.equals("inplace")) {
-                        pstmtGetFreeDock.setInt(1, station);
-
-                        ResultSet rsDock = pstmtGetFreeDock.executeQuery();
-                        if (rsDock.next()) {
-                            ResultSet rsFreeScooter = pstmtGetFreeScooters.executeQuery();
-                            if (!rsFreeScooter.next()) {
-                                throw new IllegalArgumentException("No free scooters available. Create a new scooter in order to add it to the dock.");
-                            }
-
-                            int id = rsDock.getInt("id");
-                            int scooter = rsFreeScooter.getInt("id");
-
-                            pstmtUpdateDock.setString(1, "occupy");
-                            pstmtUpdateDock.setInt(2, scooter);
-                            pstmtUpdateDock.setInt(3, id);
-
-                            int affectedRows = pstmtUpdateDock.executeUpdate();
-                            if (affectedRows == 0) {
-                                throw new IllegalArgumentException("Error updating dock.");
-                            }
-                        }
-
-                    } else {
-                        pstmtGetOccupiedDock.setInt(1, station);
-
-                        ResultSet rsDock = pstmtGetOccupiedDock.executeQuery();
-                        if (rsDock.next()) {
-                            int id = rsDock.getInt("id");
-
-                            pstmtUpdateDock.setString(1, "free");
-                            pstmtUpdateDock.setNull(2, Types.INTEGER);
-                            pstmtUpdateDock.setInt(3, id);
-
-                            int affectedRows = pstmtUpdateDock.executeUpdate();
-                            if (affectedRows == 0) {
-                                throw new IllegalArgumentException("Error updating dock.");
-                            }
-                        }
-                    }
-
-                    lastReplacement = rsReplacement.getTimestamp("dtreplacement");
-                }
-
-                if (lastReplacement == null) {
-                    continue;
-                }
-
-                pstmtUpdateReplacementOrder.setTimestamp(1, lastReplacement);
-                pstmtUpdateReplacementOrder.setInt(2, rsOrders.getInt("number"));
-                pstmtUpdateReplacementOrder.setInt(3, station);
-
-                int affectedRows = pstmtUpdateReplacementOrder.executeUpdate();
-                if (affectedRows == 0) {
-                    throw new IllegalArgumentException("Error updating replacement order.");
-                }
-            }
-
-            ResultSet rsGetTravels = pstmtGetTravels.executeQuery();
-            while (rsGetTravels.next()) {
-                int scooter = rsGetTravels.getInt("scooter");
-                int stfinal = rsGetTravels.getInt("stfinal");
-
-                if (rsGetTravels.wasNull()) {
-                    int stinitial = rsGetTravels.getInt("stinitial");
-
-                    pstmtUpdateDockByScooter.setString(1, "free");
-                    pstmtUpdateDockByScooter.setNull(2, Types.INTEGER);
-                    pstmtUpdateDockByScooter.setInt(3, stinitial);
-                    pstmtUpdateDockByScooter.setInt(4, scooter);
-
-                    ResultSet rsDock = pstmtUpdateDockByScooter.executeQuery();
-                    if (rsDock.next()) {
-                        throw new IllegalArgumentException("Error updating dock.");
-                    }
-                } else {
-                    pstmtGetFreeDock.setInt(1, stfinal);
-
-                    ResultSet rsDock = pstmtGetFreeDock.executeQuery();
+                    ResultSet rsDock = pstmtGetDock.executeQuery();
                     if (!rsDock.next()) {
                         throw new IllegalArgumentException("No free docks available.");
                     }
 
-                    int id = rsDock.getInt("id");
+                    ResultSet rsFreeScooters = pstmtGetFreeScooters.executeQuery();
+                    if (!rsFreeScooters.next()) {
+                        throw new IllegalArgumentException("No free scooters available.");
+                    }
+
+                    int dockId = rsDock.getInt("number");
+                    int scooterId = rsFreeScooters.getInt("id");
 
                     pstmtUpdateDock.setString(1, "occupy");
-                    pstmtUpdateDock.setInt(2, scooter);
-                    pstmtUpdateDock.setInt(3, id);
+                    pstmtUpdateDock.setInt(2, scooterId);
+                    pstmtUpdateDock.setInt(3, dockId);
 
                     int affectedRows = pstmtUpdateDock.executeUpdate();
                     if (affectedRows == 0) {
                         throw new IllegalArgumentException("Error updating dock.");
                     }
+                } else {
+                    pstmtGetDock.setInt(1, station);
+                    pstmtGetDock.setString(2, "occupy");
 
-                    Timestamp dtinitial = rsGetTravels.getTimestamp("dtinitial");
+                    ResultSet rsDock = pstmtGetDock.executeQuery();
+                    if (!rsDock.next()) {
+                        throw new IllegalArgumentException("No occupied docks available.");
+                    }
 
-                    pstmUpdateTravel.setTimestamp(1, new Timestamp(System.currentTimeMillis()));
-                    pstmUpdateTravel.setTimestamp(2, dtinitial);
+                    int dockId = rsDock.getInt("number");
 
-                    int affectedRowsTravel = pstmUpdateTravel.executeUpdate();
-                    if (affectedRowsTravel == 0) {
-                        throw new IllegalArgumentException("Error updating travel.");
+                    pstmtUpdateDock.setString(1, "free");
+                    pstmtUpdateDock.setNull(2, Types.INTEGER);
+                    pstmtUpdateDock.setInt(3, dockId);
+
+                    int affectedRows = pstmtUpdateDock.executeUpdate();
+                    if (affectedRows == 0) {
+                        throw new IllegalArgumentException("Error updating dock.");
                     }
                 }
             }
+
+            int affectedRows = pstmtUpdateReplacementOrders.executeUpdate();
+            if (affectedRows == 0) {
+                throw new IllegalArgumentException("Error updating replacement orders.");
+            }
+
+            ResultSet rsTravels = pstmtGetTravels.executeQuery();
+            while(rsTravels.next()) {
+                int scooter = rsTravels.getInt("scooter");
+                int stfinal = rsTravels.getInt("stfinal");
+                
+                if (!rsTravels.wasNull()) {
+                    pstmtGetDockByScooter.setString(1, "occupy");
+                    pstmtGetDockByScooter.setInt(2, stfinal);
+                    pstmtGetDockByScooter.setInt(3, scooter);
+
+                    ResultSet rsScooterDock = pstmtGetDockByScooter.executeQuery();
+                    if (!rsScooterDock.next()) {
+                        pstmtGetDock.setInt(1, stfinal);
+                        pstmtGetDock.setString(2, "free");
+
+                        ResultSet rsDock = pstmtGetDock.executeQuery();
+                        if (!rsDock.next()) {
+                            throw new IllegalArgumentException("No free docks available.");
+                        }
+
+                        int dockId = rsDock.getInt("number");
+
+                        pstmtUpdateDock.setString(1, "occupy");
+                        pstmtUpdateDock.setInt(2, scooter);
+                        pstmtUpdateDock.setInt(3, dockId);
+
+                        int affectedRowsDock = pstmtUpdateDock.executeUpdate();
+                        if (affectedRowsDock == 0) {
+                            throw new IllegalArgumentException("Error updating dock.");
+                        }
+                    }
+                }
+                
+                int stinitial = rsTravels.getInt("stinitial");
+
+                pstmtGetDockByScooter.setString(1, "occupy");
+                pstmtGetDockByScooter.setInt(2, stinitial);
+                pstmtGetDockByScooter.setInt(3, scooter);
+
+                ResultSet rsScooterDock = pstmtGetDockByScooter.executeQuery();
+                if (rsScooterDock.next()) {
+                    int dockId = rsScooterDock.getInt("number");
+
+                    pstmtUpdateDock.setString(1, "free");
+                    pstmtUpdateDock.setNull(2, Types.INTEGER);
+                    pstmtUpdateDock.setInt(3, dockId);
+
+                    int affectedRowsDock = pstmtUpdateDock.executeUpdate();
+                    if (affectedRowsDock == 0) {
+                        throw new IllegalArgumentException("Error updating dock.");
+                    }
+                }
+            }
+
+            conn.commit();
+            conn.setAutoCommit(true);
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
+
     public static void userSatisfaction(String client) {
         final String STATEMENT = """
             SELECT 
                 s.model,
-                AVG(t.rating) avg_rating,
+                AVG(t.evaluation) avg_rating,
                 COUNT(*) num_ratings,
-                COUNT(CASE WHEN t.rating >= 4 THEN 1 ELSE NULL END) / COUNT(*) * 100 satisfaction_rating
+                COUNT(CASE WHEN t.evaluation >= 4 THEN 1 ELSE NULL END) / COUNT(*) * 100 satisfaction_rating
             FROM travel t, scooter s
-            WHERE t.client = ? AND t.scooter = s.id
+            WHERE t.client = ? AND t.scooter = s.id AND t.evaluation IS NOT NULL
             GROUP BY s.model
             ORDER BY avg_rating DESC
         """;
@@ -566,7 +490,7 @@ public class Model {
         String STATEMENT = """
             SELECT
                 s.id,
-                COUNT(CASE WHEN d.state = 'occupy' THEN 1 ELSE NULL END) / COUNT(*) * 100 occupation_rate
+                COUNT(CASE WHEN d.state = 'occupy' THEN 1 ELSE NULL END) * 100 / COUNT(*) occupation_rate
             FROM dock d, station s
             WHERE d.station = s.id
             GROUP BY s.id
@@ -574,9 +498,10 @@ public class Model {
         """;
 
         try (Connection conn = DriverManager.getConnection(UI.getInstance().getConnectionString()); PreparedStatement pstmt = conn.prepareStatement(STATEMENT);) {
+            pstmt.setMaxRows(3);
             ResultSet rs = pstmt.executeQuery();
             // print the three rows with the highest occupation rate
-            while (rs.next() && rs.getRow() <= 3) {
+            while (rs.next()) {
                 System.out.println("Station ID: " + rs.getInt("id"));
                 System.out.println("    Occupation rate: " + rs.getDouble("occupation_rate") + "%");
             }

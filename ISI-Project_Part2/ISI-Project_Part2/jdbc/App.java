@@ -202,8 +202,9 @@ class UI {
         // TODO
         System.out.println("startStopTravel()");
         try {
-            String travel = Model.inputData("Enter the travel information (start(0) / stop(1), name, station, scooter):\n");
+            String travel = Model.inputData("Enter the travel information (start(1) / stop(2), name, station, scooter):\n");
             Model.travel(travel.split(","));
+            System.out.println("Travel started/stopped successfully.");
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -214,6 +215,7 @@ class UI {
         System.out.println("updateDocks()");
         try {
             Model.updateDocks();
+            System.out.println("Docks updated successfully.");
         } catch (Exception ex) {
             ex.printStackTrace();
         }
