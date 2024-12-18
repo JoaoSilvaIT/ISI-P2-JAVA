@@ -5,6 +5,7 @@ import java.util.Scanner;
 import java.util.HashMap;
 
 interface DbWorker {
+
     void doWork();
 }
 
@@ -17,6 +18,7 @@ interface DbWorker {
  * @since 2024-11-07
  */
 class UI {
+
     private enum Option {
         // DO NOT CHANGE ANYTHING!
         Unknown,
@@ -82,14 +84,17 @@ class UI {
 
     private static void clearConsole() throws Exception {
         for (int y = 0; y < 25; y++) // console is 80 columns and 25 lines
+        {
             System.out.println("\n");
+        }
 
     }
 
     private void Login() throws java.sql.SQLException {
         Connection con = DriverManager.getConnection(getConnectionString());
-        if (con != null)
+        if (con != null) {
             con.close();
+        }
     }
 
     public void Run() throws Exception {
@@ -119,31 +124,33 @@ class UI {
     }
 
     /**
-     * To implement from this point forward. Do not need to change the code above.
+     * To implement from this point forward. Do not need to change the code
+     * above.
      * -------------------------------------------------------------------------------
-     * IMPORTANT:
-     * --- DO NOT MOVE IN THE CODE ABOVE. JUST HAVE TO IMPLEMENT THE METHODS BELOW
-     * ---
+     * IMPORTANT: --- DO NOT MOVE IN THE CODE ABOVE. JUST HAVE TO IMPLEMENT THE
+     * METHODS BELOW ---
      * -------------------------------------------------------------------------------
-     * 
+     *
      */
-
     private static final int TAB_SIZE = 24;
 
     static void printResults(ResultSet dr) throws SQLException {
         ResultSetMetaData smd = dr.getMetaData();
-        for (int i = 1; i <= smd.getColumnCount(); i++)
+        for (int i = 1; i <= smd.getColumnCount(); i++) {
             System.out.format("%-15s", smd.getColumnLabel(i));
+        }
         // Horizontal line, be carefully with line size
         StringBuffer sep = new StringBuffer("\n");
-        for (int j = 0; j < 2 * (smd.getColumnCount() + TAB_SIZE); j++)
+        for (int j = 0; j < 2 * (smd.getColumnCount() + TAB_SIZE); j++) {
             sep.append('-');
+        }
         System.out.println(sep);
         // Print results
         try {
             while (dr.next()) {
-                for (int i = 1; i <= smd.getColumnCount(); i++)
+                for (int i = 1; i <= smd.getColumnCount(); i++) {
                     System.out.format("%-15s", dr.getObject(i));
+                }
                 System.out.println();
             }
         } catch (SQLException e) {
@@ -178,7 +185,6 @@ class UI {
         }
     }
 
-
     private void listReplacementOrder() {
         // IMPLEMENTED
         System.out.println("listReplacementOrder()");
@@ -195,21 +201,43 @@ class UI {
     private void startStopTravel() {
         // TODO
         System.out.println("startStopTravel()");
+        try {
+            String travel = Model.inputData("Enter the travel information (start(0) / stop(1), name, station, scooter):\n");
+            Model.travel(travel.split(","));
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     private void updateDocks() {
         // TODO
         System.out.println("updateDocks()");
+        try {
+            Model.updateDocks();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     private void userSatisfaction() {
         // TODO
         System.out.println("userSatisfaction()");
+        try {
+            String satisfaction = Model.inputData("Enter the client name:\n");
+            Model.userSatisfaction(satisfaction.split(",")[0]);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     private void occupationStation() {
         // TODO
         System.out.println("occupationStation()");
+        try {
+            Model.occupationStation();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 }
 
